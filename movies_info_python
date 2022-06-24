@@ -1,0 +1,126 @@
+#imports
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup as soup
+
+#headers
+headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:82.0) Gecko/20100101 Firefox/82.0'}
+
+#limit stron do pobierania filmow
+max_searching_page = 221
+
+#numer strony z ktorej pobierane sa filmy
+page = 220
+
+#liczba dzialania programu
+attempts = 1000
+
+for x in range(attempts):
+        #linki do filmow
+        movie_links = []
+        while page < max_searching_page:
+
+                #glowny link do sciagania filmow
+                main_link = f'https://www.filmweb.pl/films/search?orderBy=popularity&descending=true&page={page}'
+
+                #sciaga linki do filmow
+                html = requests.get(main_link, headers = headers)
+                bsobj = soup(html.content, features="html.parser")
+                for data in bsobj.find_all('div', class_='filmPreview__header'):
+                        for div in data.find_all('div'):
+                                for h2 in div.find_all("a"):
+                                        movie_links.append(f'https://www.filmweb.pl{h2["href"]}')
+                print(f"Page number: {page}")
+                page += 1
+
+        #informacje o filmie
+        polish_titles = []
+        org_titles = []
+        scores = []
+        years = []
+        lengths = []
+        genres = []
+        directors = []
+        countries = []
+
+        #ilosc zrobionych filmow
+        done = 1
+
+        #sciaganie informacji z filmu
+        for link in movie_links:
+                try:
+                        #link do filmu
+                        html = requests.get(link, headers = headers)
+                        bsobj = soup(html.content, features="html.parser")
+
+                        #polski tytul
+                        polish_title = bsobj.find('h1', class_='filmCoverSection__title').get_text(strip=True)
+                        polish_titles.append(polish_title)
+
+                        #oryginalny tytul
+                        try:
+                                org_title = bsobj.find('div', class_='filmCoverSection__originalTitle').get_text(strip=True)
+                                org_titles.append(org_title)
+                        except:
+                                org_titles.append(polish_title)
+
+                        #ocena
+                        score = bsobj.find('span', class_='filmRating__rateValue').get_text(strip=True).replace(',','.')
+                        scores.append(float(score))
+
+                        #rok wydania
+                        year = bsobj.find('div', class_='filmCoverSection__year').get_text(strip=True)
+                        years.append(year)
+
+                        #dlugosc trwania
+                        length = bsobj.find('div', class_='filmCoverSection__duration').get_text(strip=True)
+                        if 'godz.' in length:
+                                num = int(length[0])
+                                num = str(num*60)
+                                length = length[1:]
+                                length = num + length
+                                length = length.replace(' godz.', '').replace(' min.', '')
+                                length = length.split(' ')
+                                length = [int(x) for x in length]
+                                length = sum(length)
+                        else:
+                                length = length.replace(' min.', '').strip()
+                                length = int(length)
+                        lengths.append(length)
+
+                        #gatunek
+                        genre = bsobj.find('div', class_='filmPosterSection__info filmInfo').get_text(strip=True)
+                        genre = sorted(genre[genre.find('gatunek'):genre.find('produkcja')].replace('gatunek', '').split('/'))
+                        genres.append(genre[0])
+
+                        #rezyser
+                        director = bsobj.find('div', class_='filmPosterSection__info filmInfo').get_text(strip=True)
+                        director = director[director.find('reżyseria'):director.find('scenariusz')].replace('reżyseria', '').split('/')[0]
+                        directors.append(director)
+
+                        #kraj
+                        country = bsobj.find('div', class_='filmPosterSection__info filmInfo').get_text(strip=True)
+                        country = country[country.find('produkcja'):country.find('premiera')].replace('produkcja', '').split('/')[0]
+                        countries.append(country)
+
+                        print(f"Movie number: {done} out of {len(movie_links)}, attempt: {x+1} out of {attempts}")
+                except:
+                        print('Nie udalo sie zebrac informacji o filmie.')
+                done += 1
+
+        movies = {'polish_title': polish_titles,
+                  'original_title': org_titles,
+                  'score': scores,
+                  'year': years,
+                  'length': lengths,
+                  'genre': genres,
+                  'director': directors,
+                  'country': countries}
+
+        try:
+                df = pd.DataFrame.from_dict(movies)
+                df.to_csv("Movies", mode="a", index=False, header=False)
+        except:
+                print("Nie udalo sie dodac filmow do pliku")
+
+        max_searching_page += 1
