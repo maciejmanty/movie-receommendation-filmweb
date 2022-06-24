@@ -1,0 +1,117 @@
+#imports
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup as soup
+import time
+
+#headers
+headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:82.0) Gecko/20100101 Firefox/82.0'}
+
+#numer strony z bazy filmow
+num_of_movies_dataset = 60
+
+#maksymalny numer strony z bazy filmow
+max_num_of_movies_dataset = 100
+
+while num_of_movies_dataset < max_num_of_movies_dataset:
+
+    print(f'{num_of_movies_dataset} number of page with movies')
+
+    #link do bazy filmow
+    main_link = f'https://www.filmweb.pl/films/search?orderBy=popularity&descending=true&page={num_of_movies_dataset}'
+
+    #lista linkow do filmow
+    movie_links = []
+
+    #sciaga linki do filmow
+    html = requests.get(main_link, headers = headers)
+    bsobj = soup(html.content, features="html.parser")
+    for data in bsobj.find_all('div', class_='filmPreview__header'):
+        for div in data.find_all('div'):
+            for h2 in div.find_all("a"):
+                movie_links.append(f'https://www.filmweb.pl{h2["href"]}')
+
+    for movie in movie_links:
+
+        #lista uzytkownikow
+        users = []
+
+        #lista ocen
+        scores = []
+
+        # time.sleep(1)
+
+        #polaczenie z kazdym filmem
+        html = requests.get(movie, headers=headers)
+        bsobj = soup(html.content, features="html.parser")
+
+        #tytul filmu
+        movie_title = bsobj.find('h1', class_='filmCoverSection__title').get_text(strip=True)
+
+        #numer strony z forum
+        num_of_forum_page = 1
+
+        #maksymalny numer strony forum
+        max_num_of_forum_page = 10
+
+        while num_of_forum_page < max_num_of_forum_page:
+
+            try:
+                print(f'{num_of_forum_page} number of forum page of {movie_title}. Number of dataset page: {num_of_movies_dataset}')
+
+                # time.sleep(1)
+
+                #link do forum
+                forum_link = f'{movie}/discussion?plusMinus=true&page={num_of_forum_page}'
+
+                #lista do oczyszczenia
+                list_to_clear = []
+
+                #lista tytułow komentarzy
+                list_of_comment_titles = []
+
+                #polaczenie z linkiem z forum
+                html = requests.get(forum_link, headers = headers)
+                bsobj = soup(html.content, features="html.parser")
+
+                #wyciaga tytul wraz z uztykownikiem i ocena
+                for data in bsobj.find_all('div', class_='forumSection__right'):
+                    list_to_clear.append(data.get_text(strip=True))
+
+                #wyciaga tylko tytuly
+                for data in bsobj.find_all('div', class_='forumSection__right'):
+                    for a in data.find('a', class_='forumSection__itemLink'):
+                        list_of_comment_titles.append(a.get_text(strip=True))
+
+                #uzytkownicy z ocenami
+                users_with_scores = []
+
+                #usuwanie tytulow od uzytkownikow i ocen
+                for x in range(len(list_to_clear)):
+                    user_and_score = list_to_clear[x].replace(list_of_comment_titles[x], '')
+                    if 'ocenił(a) filmna' in user_and_score:
+                        users_with_scores.append(user_and_score)
+
+                #dzielenie na grupy uzytkownikow i ocen
+                for text in users_with_scores:
+                    text = text.split('ocenił(a) filmna')
+                    users.append(text[0])
+                    scores.append(text[1])
+
+                num_of_forum_page += 1
+
+            except:
+                max_num_of_forum_page -= 1
+
+        reviews = {'user_name': users,
+               'score': scores,
+               'movie': movie_title}
+
+
+        try:
+            df = pd.DataFrame.from_dict(reviews)
+            df.to_csv("Reviews", mode="a", index=False, header=False)
+        except:
+            print("Nie udalo sie dodac filmow do pliku")
+
+    num_of_movies_dataset += 1
